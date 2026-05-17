@@ -1,1 +1,4 @@
 tracker-extracted.js
+.env
+.env.local
+.env.*.local
