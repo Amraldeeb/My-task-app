@@ -15,6 +15,21 @@ function getCheckboxValue(page) {
   return !!prop?.checkbox;
 }
 
+function getDateValue(page) {
+  const prop = Object.values(page.properties || {}).find((entry) => entry.type === 'date');
+  const start = prop?.date?.start || null;
+  if (!start) return { date: null, time: null };
+
+  // Notion returns either "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss.000+HH:MM"
+  if (start.includes('T')) {
+    const [datePart, timePart] = start.split('T');
+    const time = timePart.slice(0, 5); // "HH:mm"
+    return { date: datePart, time };
+  }
+
+  return { date: start, time: null };
+}
+
 module.exports = async (req, res) => {
   if (handleOptions(req, res)) return;
   applyCors(req, res);
@@ -44,13 +59,19 @@ module.exports = async (req, res) => {
     }
 
     const data = await response.json();
-    const tasks = (data.results || []).map((page) => ({
-      id: page.id,
-      title: getTaskTitle(page),
-      status: getSelectValue(page, 'status') || getSelectValue(page, 'select') || 'Notion task',
-      done: getCheckboxValue(page),
-      url: page.url
-    }));
+
+    const tasks = (data.results || []).map((page) => {
+      const { date, time } = getDateValue(page);
+      return {
+        id: page.id,
+        title: getTaskTitle(page),
+        status: getSelectValue(page, 'status') || getSelectValue(page, 'select') || 'Notion task',
+        done: getCheckboxValue(page),
+        url: page.url,
+        date,
+        time
+      };
+    });
 
     res.status(200).json({ tasks });
   } catch (error) {
