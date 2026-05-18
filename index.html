@@ -860,13 +860,11 @@ function totalKcalForLog(l){return(l.totalKcal||0)||(l.cardioKcal||0)+(l.strKcal
 // UNIFIED STATE
 // ═══════════════════════════════════════════════════════════
 const state={
-  // Daily habit state
   toggles:{workout:false,wakeup:false,junk:false,smoking:false},
   nums:{'workout-mins':0,'sleep':7,'water':0,'work-hrs':0,'outreach':0,'tasks':0},
   goals:{'sleep-goal':7,'water-goal':3,'outreach-goal':10},
   integrations:{gcal:false,notion:false,calendly:false,apiBaseUrl:''},
   habitHistory:{},
-  // Training state
   trainLogs:{},
   checks:{},
   trainNums:{cardio:25,sets:0},
@@ -875,7 +873,6 @@ const state={
   program:cloneProgram(DEFAULT_PROGRAM),
   profile:{height:175,weight:75,age:28,gender:'male'},
   bmi:0,
-  // UI
   calView:'month',
   calDate:new Date(),
   calSelectedDate:getTodayStr(),
@@ -886,18 +883,15 @@ const state={
 };
 
 // ═══════════════════════════════════════════════════════════
-// SAMPLE CALENDAR EVENTS
+// SAMPLE CALENDAR EVENTS (gcal/calendly placeholders only — notion events come from API)
 // ═══════════════════════════════════════════════════════════
 const todayKey=()=>new Date().toISOString().slice(0,10);
 function getFutureDate(d){const dt=new Date();dt.setDate(dt.getDate()+d);return dt.toISOString().slice(0,10);}
 const sampleEvents=[
   {id:1,name:'Team standup',time:'09:00',duration:'30min',date:todayKey(),color:'#60a5fa',source:'gcal'},
   {id:2,name:'Client call — Ahmed',time:'11:00',duration:'1hr',date:todayKey(),color:'#f59e0b',source:'calendly'},
-  {id:3,name:'Deep work block',time:'14:00',duration:'3hr',date:todayKey(),color:'#7c6fff',source:'notion'},
-  {id:4,name:'Review & planning',time:'17:00',duration:'1hr',date:todayKey(),color:'#4ade80',source:'notion'},
   {id:5,name:'Investor meeting',time:'10:00',duration:'1hr',date:getFutureDate(1),color:'#f59e0b',source:'calendly'},
   {id:6,name:'Sales call',time:'15:00',duration:'30min',date:getFutureDate(2),color:'#60a5fa',source:'gcal'},
-  {id:7,name:'Product review',time:'09:30',duration:'2hr',date:getFutureDate(3),color:'#7c6fff',source:'notion'},
   {id:8,name:'Networking event',time:'18:00',duration:'2hr',date:getFutureDate(5),color:'#4ade80',source:'gcal'}
 ];
 let calendarEvents=[...sampleEvents];
@@ -911,7 +905,6 @@ function loadData(){
     const saved=localStorage.getItem('lifeos_state');
     if(saved){
       const s=JSON.parse(saved);
-      // Habits — only restore today's values
       if(s.today===getTodayStr()){
         Object.assign(state.toggles,s.toggles||{});
         Object.assign(state.nums,s.nums||{});
@@ -924,7 +917,6 @@ function loadData(){
       state.program=Array.isArray(s.program)&&s.program.length?s.program:cloneProgram(DEFAULT_PROGRAM);
       Object.assign(state.profile,s.profile||{});
       state.bmi=typeof s.bmi==='number'?s.bmi:0;
-      // Training
       state.trainLogs=s.trainLogs||{};
       const td=getTodayStr();
       if(state.trainLogs[td]?.exercises) state.checks={...state.trainLogs[td].exercises};
@@ -1150,7 +1142,6 @@ function updateScore(){
 function toggleHabit(id){
   state.toggles[id]=!state.toggles[id];
   document.getElementById('t-'+id).classList.toggle('on',state.toggles[id]);
-  // Sync workout toggle to training if applicable
   if(id==='workout'){
     const td=getTodayStr();
     if(!state.trainLogs[td]) state.trainLogs[td]={};
@@ -1207,6 +1198,10 @@ async function fetchRemoteJson(path){
   if(!response.ok) throw new Error(`Request failed: ${response.status}`);
   return response.json();
 }
+
+// ═══════════════════════════════════════════════════════════
+// REMOTE DATA SYNC  ← THE FIX IS HERE
+// ═══════════════════════════════════════════════════════════
 async function refreshRemoteData(showToastOnSuccess=false){
   const base=getApiBaseUrl();
   if(!base){
@@ -1227,6 +1222,25 @@ async function refreshRemoteData(showToastOnSuccess=false){
     if(Array.isArray(tasksData?.tasks)){
       notionTasks=tasksData.tasks;
       state.integrations.notion=true;
+
+      // Map Notion tasks that have a date into calendar events
+      const notionEvents=notionTasks
+        .filter(task=>task.date&&!task.done)
+        .map(task=>({
+          id:'notion-'+task.id,
+          name:task.title,
+          time:task.time||'',
+          duration:'',
+          date:task.date,
+          color:'#7c6fff',
+          source:'notion'
+        }));
+
+      // Keep gcal/calendly events, replace notion ones with live data
+      calendarEvents=[
+        ...calendarEvents.filter(e=>e.source!=='notion'),
+        ...notionEvents
+      ];
     }
     if(statusData){
       state.integrations.gcal=!!statusData.googleCalendar;
@@ -1246,6 +1260,7 @@ async function refreshRemoteData(showToastOnSuccess=false){
     if(showToastOnSuccess) showToast('Backend sync failed');
   }
 }
+
 function renderDashboardTodos(){
   const tasks=state.nums['tasks']||0;
   const outreach=state.nums['outreach']||0;
@@ -1409,7 +1424,7 @@ function renderTodayEvents(){
   if(!events.length){el.innerHTML='<div class="empty">No events today</div>';return;}
   el.innerHTML=events.map(e=>`<div class="event-item">
     <div class="event-dot" style="background:${e.color}"></div>
-    <div class="event-info"><div class="event-name">${e.name}</div><div class="event-time">${e.time} · ${e.duration}</div></div>
+    <div class="event-info"><div class="event-name">${e.name}</div><div class="event-time">${e.time}${e.time&&e.duration?' · ':''}${e.duration}</div></div>
     <span class="event-source" style="background:${e.color}22;color:${e.color}">${e.source}</span>
   </div>`).join('');
 }
@@ -1487,7 +1502,6 @@ function markWorkoutDone(){
     state.trainLogs[td].dayName=prog.name;
     state.trainLogs[td].dayIdx=dayIdx;
     state.trainLogs[td].strKcal=calcStrengthKcal(totalSets);
-    // Also sync habit workout toggle
     state.toggles.workout=true;
     document.getElementById('t-workout').classList.add('on');
     updateScore();
@@ -1650,7 +1664,6 @@ function saveTrainLog(){
     sets:state.trainNums.sets,exercises:{...state.checks},notes,
     dayName:prog.name,dayIdx,cardioKcal,strKcal,totalKcal:cardioKcal+strKcal
   };
-  // Sync workout toggle to dashboard
   state.toggles.workout=true;
   document.getElementById('t-workout').classList.add('on');
   updateScore();updateStreaks();persist();refreshPerformanceUI();renderDashboardTodos();
@@ -1812,7 +1825,7 @@ function renderAgenda(){
     }
     html+=`<div class="event-item">
       <div class="event-dot" style="background:${e.color}"></div>
-      <div class="event-info"><div class="event-name">${e.name}</div><div class="event-time">${e.time} · ${e.duration}</div></div>
+      <div class="event-info"><div class="event-name">${e.name}</div><div class="event-time">${e.time}${e.time&&e.duration?' · ':''}${e.duration}</div></div>
       <span class="event-source" style="background:${e.color}22;color:${e.color}">${e.source}</span>
     </div>`;
   });
@@ -1839,7 +1852,7 @@ function renderUpcoming(){
     el.innerHTML=selectedEvents.map(e=>`
       <div class="event-item">
         <div class="event-dot" style="background:${e.color}"></div>
-        <div class="event-info"><div class="event-name">${e.name}</div><div class="event-time">${e.time} · ${e.duration}</div></div>
+        <div class="event-info"><div class="event-name">${e.name}</div><div class="event-time">${e.time}${e.time&&e.duration?' · ':''}${e.duration}</div></div>
         <span class="event-source" style="background:${e.color}22;color:${e.color}">${e.source}</span>
       </div>
     `).join('');
@@ -2043,21 +2056,17 @@ function showToast(msg){
 // ═══════════════════════════════════════════════════════════
 loadData();
 
-// Set today date
 const now=new Date();
 document.getElementById('today-date').textContent=now.toLocaleDateString('en',{weekday:'short',month:'short',day:'numeric'});
 
-// Sync toggles
 Object.keys(state.toggles).forEach(id=>{
   const el=document.getElementById('t-'+id);
   if(el&&state.toggles[id]) el.classList.add('on');
 });
-// Sync habit nums
 Object.keys(state.nums).forEach(id=>{
   const el=document.getElementById('v-'+id);
   if(el){const v=state.nums[id];el.textContent=Number.isInteger(v)?v:v.toFixed(1);}
 });
-// Sync goals
 Object.keys(state.goals).forEach(id=>{
   const el=document.getElementById('v-'+id);
   if(el){const v=state.goals[id];el.textContent=Number.isInteger(v)?v:v.toFixed(1);}
